@@ -1,0 +1,240 @@
+{
+  "version": "0.1.0",
+  "name": "qwetu_bets",
+  "instructions": [
+    {
+      "name": "createMarket",
+      "accounts": [
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "marketId",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "placeBet",
+      "accounts": [
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "bet",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "vote",
+          "type": "u8"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "resolveMarket",
+      "accounts": [
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "winner",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "claim",
+      "accounts": [
+        {
+          "name": "market",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "bet",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "publicKey"
+          },
+          {
+            "name": "marketId",
+            "type": "string"
+          },
+          {
+            "name": "resolved",
+            "type": "bool"
+          },
+          {
+            "name": "winner",
+            "type": "u8"
+          },
+          {
+            "name": "totalYes",
+            "type": "u64"
+          },
+          {
+            "name": "totalNo",
+            "type": "u64"
+          },
+          {
+            "name": "feePercentage",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Bet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "publicKey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "vote",
+            "type": "u8"
+          },
+          {
+            "name": "claimed",
+            "type": "bool"
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "name": "BetPlaced",
+      "fields": [
+        {
+          "name": "marketId",
+          "type": "string",
+          "index": false
+        },
+        {
+          "name": "user",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "amount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "vote",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "newTotalYes",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "newTotalNo",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "MarketClosed",
+      "msg": "Market is closed."
+    },
+    {
+      "code": 6001,
+      "name": "MarketNotResolved",
+      "msg": "Market is not resolved yet."
+    },
+    {
+      "code": 6002,
+      "name": "AlreadyResolved",
+      "msg": "Market already resolved."
+    },
+    {
+      "code": 6003,
+      "name": "YouLost",
+      "msg": "Sorry, you lost."
+    },
+    {
+      "code": 6004,
+      "name": "AlreadyClaimed",
+      "msg": "Already claimed."
+    }
+  ]
+}

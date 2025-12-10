@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/mpesa/stk-push/cron/mint-tokens",
+      "schedule": "* * * * *"
+    }
+  ]
+}

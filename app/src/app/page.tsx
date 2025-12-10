@@ -1,164 +1,200 @@
-"use client";
-
-import { useState, useEffect } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
-import { Program, AnchorProvider, web3, BN } from "@coral-xyz/anchor";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import idl from "../utils/idl.json";
+'use client';
+import React, { useState, useEffect } from 'react';
+import { useUserAuth } from '@/hooks/useUserAuth';
+import LoginScreen from '@/components/LoginScreen';
+import DepositModal from '@/components/DepositModal';
+import MarketCard from '@/components/MarketCard'; // New
+import BetModal from '@/components/BetModal';     // New
+import { Wallet, Plus, TrendingUp, LogOut, Loader2 } from 'lucide-react';
+import { Connection, PublicKey } from '@solana/web3.js';
 
 // --- CONFIGURATION ---
-const PROGRAM_ID = new web3.PublicKey("FgzZbmGBW7y749xrgMWETpwH5DHBYhWmoed5jrvmGE5b"); 
+const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.devnet.solana.com";
+const PROGRAM_ID = new PublicKey("FgzZbmGBW7y749xrgMWETpwH5DHBYhWmoed5jrvmGE5b");
+// Mock Data (Replace with Supabase fetch later)
+const MOCK_MARKETS = [
+  {
+    id: "market_01",
+    question: "Will it rain in Nairobi tomorrow?",
+    totalYes: 5.4,
+    totalNo: 3.2,
+    feePercentage: 200, // 2%
+  },
+  {
+    id: "market_02",
+    question: "Will Arsenal win against Chelsea?",
+    totalYes: 12.5,
+    totalNo: 8.1,
+    feePercentage: 200,
+  }
+];
 
-export default function Home() {
-  const wallet = useAnchorWallet();
-  const { connection } = useConnection();
+export default function QwetuBetsApp() {
+  const { isLoading, isAuthenticated, user, keypair, error, authenticate, logout, refreshUser, getBalance } = useUserAuth();
+  const [showDepositModal, setShowDepositModal] = useState(false);
   
-  // State
-  const [balance, setBalance] = useState(0);
-  const [marketId, setMarketId] = useState("market_01");
-  const [betAmount, setBetAmount] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [status, setStatus] = useState("");
+  // Betting State
+  const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
+  const [selectedVote, setSelectedVote] = useState<number>(1); // 1=Yes, 2=No
+  const [showBetModal, setShowBetModal] = useState(false);
+  
+  const [balance, setBalance] = useState<number | null>(null);
+  const [loadingBalance, setLoadingBalance] = useState(false);
 
-  // Helper: Get the Program Object
-  const getProgram = () => {
-    if (!wallet) return null;
-    const provider = new AnchorProvider(connection, wallet, {});
-    // @ts-ignore
-    return new Program(idl as any, provider);
-  };
-
-  // 1. Simulate M-Pesa Deposit (Demo Mode)
-  const handleMpesaDeposit = async () => {
-    if (!wallet) return alert("Connect Wallet first!");
-    setIsLoading(true);
-    setStatus("Initiating STK Push...");
-
-    // Fake delay for realism
-    setTimeout(() => {
-      setStatus("Payment Received! Airdropping SOL...");
-      
-      // --- DEMO MODE ON: Just pretend we got money ---
-      // Instead of asking the blockchain (which fails), we just update the UI.
-      alert("Success! 1 SOL deposited via M-Pesa Simulation.");
-      setBalance(balance + 1); // Manually add 1 SOL to the display
-      
-      setIsLoading(false);
-      setStatus("");
-    }, 2000);
-  };
-
-  // 2. Place Bet
-  const placeBet = async (vote: number) => {
-    if (!wallet || !betAmount) return;
-    const program = getProgram();
-    if (!program) return;
-
-    try {
-      setIsLoading(true);
-      setStatus(`Betting on ${vote === 1 ? "YES" : "NO"}...`);
-
-      // Calculate Addresses (PDA)
-      const [marketPda] = web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("market"), Buffer.from(marketId)],
-        PROGRAM_ID
-      );
-
-      const [betPda] = web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("bet"), marketPda.toBuffer(), wallet.publicKey.toBuffer()],
-        PROGRAM_ID
-      );
-
-      // Call Smart Contract
-      await program.methods
-        .placeBet(vote, new BN(parseFloat(betAmount) * web3.LAMPORTS_PER_SOL))
-        .accounts({
-          market: marketPda,
-          bet: betPda,
-          user: wallet.publicKey,
-          systemProgram: web3.SystemProgram.programId,
-        })
-        .rpc();
-
-      alert("Bet Placed Successfully!");
-      updateBalance();
-    } catch (e) {
-      console.error(e);
-      alert("Error placing bet. (Did the Admin create the market yet?)");
-    }
-    setIsLoading(false);
-    setStatus("");
-  };
-
-  const updateBalance = async () => {
-    if (wallet) {
-      const val = await connection.getBalance(wallet.publicKey);
-      setBalance(val / web3.LAMPORTS_PER_SOL);
-    }
-  };
+  // Solana Connection
+  const connection = new Connection(RPC_URL, "confirmed");
 
   useEffect(() => {
-    updateBalance();
-  }, [wallet]);
+    if (isAuthenticated) {
+      fetchBalance();
+    }
+  }, [isAuthenticated]);
+
+  const fetchBalance = async () => {
+    setLoadingBalance(true);
+    try {
+      const sol = await getBalance();
+      setBalance(sol);
+    } catch (error) {
+      console.error('Failed to fetch balance:', error);
+    } finally {
+      setLoadingBalance(false);
+    }
+  };
+
+  const handleDepositSuccess = async () => {
+    await fetchBalance();
+    await refreshUser();
+  };
+
+  // Triggered when user clicks YES/NO on a card
+  const handleOpenBetModal = (vote: number, marketId: string) => {
+    setSelectedVote(vote);
+    setSelectedMarket(marketId);
+    setShowBetModal(true);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="bg-gradient-to-r from-emerald-600 to-teal-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <TrendingUp className="text-white" size={32} />
+          </div>
+          <p className="text-gray-600">Loading Qwetu Bets...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <LoginScreen
+        onAuthenticate={authenticate}
+        isLoading={isLoading}
+        error={error}
+      />
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-gray-100 text-gray-800 font-sans">
-      {/* HEADER */}
-      <nav className="bg-green-600 p-4 text-white flex justify-between items-center shadow-md">
-        <h1 className="text-2xl font-bold tracking-tight">Qwetu Bets 🇰🇪</h1>
-        <WalletMultiButton style={{ backgroundColor: "#15803d" }} />
-      </nav>
+    <div className="min-h-screen bg-gray-50 pb-20">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-gradient-to-r from-emerald-600 to-teal-600 w-10 h-10 rounded-xl flex items-center justify-center">
+                <TrendingUp className="text-white" size={20} />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">Qwetu Bets</h1>
+                <p className="text-xs text-gray-500">{user?.phoneNumber}</p>
+              </div>
+            </div>
+            <button onClick={logout} className="text-gray-500 hover:text-gray-700 transition">
+              <LogOut size={20} />
+            </button>
+          </div>
+        </div>
+      </header>
 
-      <div className="max-w-md mx-auto mt-8 p-4">
-        {/* BALANCE CARD */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border-t-4 border-green-500">
-          <p className="text-sm text-gray-500 uppercase font-semibold">Wallet Balance</p>
-          <h2 className="text-4xl font-bold text-gray-900">{balance.toFixed(2)} SOL</h2>
-          
+      <div className="max-w-4xl mx-auto px-4 py-6">
+        {/* Balance Card */}
+        <div className="bg-gradient-to-br from-emerald-600 to-teal-600 rounded-2xl p-6 text-white shadow-xl mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Wallet size={20} />
+              <span className="text-sm opacity-90">Your Balance</span>
+            </div>
+            <button onClick={fetchBalance} disabled={loadingBalance} className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition flex items-center gap-1">
+              {loadingBalance && <Loader2 size={12} className="animate-spin" />}
+              {loadingBalance ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+          <div className="mb-6">
+            <div className="text-4xl font-bold mb-1">
+              {balance !== null ? `${balance.toFixed(4)} SOL` : '---'}
+            </div>
+            <div className="text-sm opacity-75">
+              ≈ KES {balance !== null ? (balance * 10000).toLocaleString('en-KE', { maximumFractionDigits: 0 }) : '---'}
+            </div>
+          </div>
           <button
-            onClick={handleMpesaDeposit}
-            disabled={isLoading}
-            className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg flex justify-center items-center transition-all"
+            onClick={() => setShowDepositModal(true)}
+            className="w-full bg-white text-emerald-600 py-3 rounded-xl font-bold hover:bg-gray-50 transition flex items-center justify-center gap-2"
           >
-            {isLoading ? "Processing..." : "Deposit with M-Pesa"}
+            <Plus size={20} />
+            Deposit with M-Pesa
           </button>
-          {status && <p className="text-center text-sm mt-2 text-green-600 animate-pulse">{status}</p>}
         </div>
 
-        {/* MARKET CARD */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex justify-between items-start mb-4">
-            <h3 className="text-xl font-bold">Will Cleanshelf have chapati tomorrow?</h3>
-            <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded">Live</span>
-          </div>
+        {/* ACTIVE MARKETS */}
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+            🔥 Active Markets
+          </h2>
           
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Bet Amount (SOL)</label>
-            <input
-              type="number"
-              value={betAmount}
-              onChange={(e) => setBetAmount(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
-              placeholder="0.5"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={() => placeBet(1)}
-              className="bg-green-100 hover:bg-green-200 text-green-800 font-bold py-4 rounded-lg border border-green-300 transition-colors"
-            >
-              YES
-            </button>
-            <button
-              onClick={() => placeBet(2)}
-              className="bg-red-100 hover:bg-red-200 text-red-800 font-bold py-4 rounded-lg border border-red-300 transition-colors"
-            >
-              NO
-            </button>
+          <div className="space-y-4">
+            {MOCK_MARKETS.map((market) => (
+              <MarketCard
+                key={market.id}
+                marketId={market.id}
+                question={market.question}
+                totalYes={market.totalYes}
+                totalNo={market.totalNo}
+                feePercentage={market.feePercentage}
+                onBet={handleOpenBetModal}
+              />
+            ))}
           </div>
         </div>
       </div>
-    </main>
+
+      {/* MODALS */}
+      <DepositModal
+        isOpen={showDepositModal}
+        onClose={() => setShowDepositModal(false)}
+        userId={user!.id}
+        phoneNumber={user!.phoneNumber}
+        onSuccess={handleDepositSuccess}
+      />
+
+      {keypair && selectedMarket && (
+        <BetModal
+          isOpen={showBetModal}
+          onClose={() => setShowBetModal(false)}
+          marketId={selectedMarket}
+          vote={selectedVote}
+          keypair={keypair}
+          connection={connection}
+          programId={PROGRAM_ID}
+          onSuccess={() => {
+            fetchBalance();
+            // TODO: Refresh market data from Supabase
+          }}
+        />
+      )}
+    </div>
   );
 }
