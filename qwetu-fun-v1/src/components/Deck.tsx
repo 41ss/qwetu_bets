@@ -11,6 +11,9 @@ import confetti from "canvas-confetti";
 import { useGameStore } from "@/store/gameStore";
 import { useMarkets } from "@/hooks/useMarkets";
 import SkeletonCard from "./SkeletonCard";
+import { useAuth } from "@/contexts/AuthProvider";
+import DepositModal from "./DepositModal";
+import { initiateDeposit } from "@/lib/payments";
 
 export default function Deck() {
     const { markets: dataMarkets, isLoading, usingMock } = useMarkets();
@@ -21,13 +24,21 @@ export default function Deck() {
 
     const markets = dataMarkets.filter(m => !removedIds.includes(m.id));
 
+    const { user, balance, refreshBalance } = useAuth();
     // Payment Modal State
     const [modalOpen, setModalOpen] = useState(false);
+    const [depositModalOpen, setDepositModalOpen] = useState(false);
     const [pendingIntent, setPendingIntent] = useState<{ id: string, intent: "YES" | "NO" } | null>(null);
 
     const handleSwipeIntent = (id: string, intent: "YES" | "NO" | "SKIP") => {
         if (intent === "SKIP") {
             setRemovedIds(prev => [...prev, id]);
+            return;
+        }
+
+        // 1. GATEKEEPER: Check Balance
+        if (balance < 50) {
+            setDepositModalOpen(true);
             return;
         }
 
@@ -37,6 +48,14 @@ export default function Deck() {
 
         setPendingIntent({ id, intent });
         setModalOpen(true);
+    };
+
+    const handleDeposit = async (phone: string, amount: number) => {
+        if (!user) {
+            toast.error("Please login first!");
+            return;
+        }
+        await initiateDeposit(amount, phone, user.verifierId || user.email, refreshBalance);
     };
 
     const handleConfirmPayment = () => {
@@ -92,15 +111,6 @@ export default function Deck() {
                         />
                     );
                 }).reverse()}
-                {/* Reverse so first in array is on top visually (z-index natural stacking context works opposite usually, later in DOM = higher)
-            Wait, if I render cards, the last one in DOM is on top.
-            If markets[0] is top card, I want it last in DOM?
-            Or I control z-index.
-            Let's use .reverse() to render:
-            [0, 1, 2] -> [2, 1, 0]
-            DOM: 2 (bottom), 1 (middle), 0 (top).
-            Correct.
-        */}
             </AnimatePresence>
 
             {currentMarket && pendingIntent && (
@@ -113,6 +123,12 @@ export default function Deck() {
                     intent={pendingIntent.intent}
                 />
             )}
+
+            <DepositModal
+                isOpen={depositModalOpen}
+                onClose={() => setDepositModalOpen(false)}
+                onDeposit={handleDeposit}
+            />
 
             {markets.length === 0 && (
                 <div className="flex flex-col items-center justify-center text-center p-8">

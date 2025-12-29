@@ -1,13 +1,17 @@
+"use client";
+
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import toast from "react-hot-toast";
 
-// Types need to be imported or defined, but for now lets rely on 'any' for the library parts to ensure isolation
-// We can import types only
-import type { IProvider } from "@web3auth/base";
-import { CHAIN_NAMESPACES } from "@web3auth/base";
+// WEB3AUTH IMPORTS
+import { CHAIN_NAMESPACES, WEB3AUTH_NETWORK, IProvider } from "@web3auth/base";
+import { Web3Auth } from "@web3auth/modal";
+import { SolanaPrivateKeyProvider } from "@web3auth/solana-provider";
+import { AuthAdapter } from "@web3auth/auth-adapter";
+// --- CONFIGURATION ---
+const clientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID || "BOY4kYL09-C6TZsq7Q4vBlDgzEiOD-tO4y_fieTICYu5ZCuIQIMQHNVGCiIUqMwj6MY-H5yFB-otuPbbF17bd3I";
 
-// Constants for Chain
 const chainConfig = {
     chainNamespace: CHAIN_NAMESPACES.SOLANA,
     chainId: "0x3", // Solana Devnet
@@ -18,6 +22,7 @@ const chainConfig = {
     tickerName: "Solana",
 };
 
+// --- TYPES ---
 interface AuthContextType {
     user: any;
     provider: IProvider | null;
@@ -29,28 +34,11 @@ interface AuthContextType {
     refreshBalance: () => Promise<void>;
 }
 
-// @ts-ignore
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-// Helper to interact with RPC (simplified for now)
-const getSolanaAddress = async (provider: IProvider): Promise<string> => {
-    // Only works if provider is solana
-    // But @web3auth/solana-provider doesn't expose standard request easily in all versions.
-    // Let's assume standard connection.
-    try {
-        const accounts = await (provider as any).request({ method: "getAccounts" });
-        return accounts?.[0] || "";
-    } catch (error) {
-        console.error("Error getting address", error);
-        return "";
-    }
-};
-
-// Define types locally if needed or use 'any' to avoid import issues
-type Web3AuthType = any;
-
+// --- COMPONENT ---
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-    const [web3auth, setWeb3auth] = useState<Web3AuthType | null>(null);
+    const [web3auth, setWeb3auth] = useState<Web3Auth | null>(null);
     const [provider, setProvider] = useState<IProvider | null>(null);
     const [user, setUser] = useState<any>(null);
     const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -60,38 +48,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         const init = async () => {
             try {
-                if (typeof window === "undefined") return;
-
-                // Dynamic Import to firewall SSR
-                const { Web3Auth } = await import("@web3auth/modal");
-                const { SolanaPrivateKeyProvider } = await import("@web3auth/solana-provider");
-                const { OpenloginAdapter } = await import("@web3auth/openlogin-adapter");
-
-                const clientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID || "BPi5PB_UiIZ-cPz1GtV5i1I2iOSOHuimiXBI0e-Oe_u6X3oVAbCiAZOTEBtTXw4tsluTITPqA8zMsfxIKMjiqNQ";
-
-                console.log("Initializing Web3Auth...");
-                
-                // Cast to any to avoid strict type checks
-                const privateKeyProvider = new SolanaPrivateKeyProvider({ config: { chainConfig } }) as any;
-                
-                const web3authInstance = new Web3Auth({
-                    clientId,
-                    web3AuthNetwork: "sapphire_devnet",
-                    privateKeyProvider,
+                // 1. Initialize Solana Provider
+                // @ts-ignore - 'currentChain' bypass
+                const privateKeyProvider = new SolanaPrivateKeyProvider({
+                    config: { chainConfig },
                 }) as any;
 
-                const adapter = new OpenloginAdapter({
+                // 2. Initialize Web3Auth Core
+                const web3authInstance = new Web3Auth({
+                    clientId,
+                    web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
                     privateKeyProvider,
-                    adapterSettings: {
-                        uxMode: "popup",
-                    },
                 });
-                web3authInstance.configureAdapter(adapter);
 
-                // Check for initModal vs init
-                if (typeof web3authInstance.initModal === 'function') {
+                // 3. EXPLICITLY Configure OpenLogin Adapter (The Fix)
+                // This forces the "Auth" module to exist, preventing the 'loginWithSessionId' null error.
+                const authAdapter = new AuthAdapter({
+        privateKeyProvider,
+        adapterSettings: {
+            uxMode: "popup",
+        }
+    });
+web3authInstance.configureAdapter(authAdapter as any);
+                // 4. Init Modal
+                // @ts-ignore - initModal check
+                if (web3authInstance.initModal) {
+                    // @ts-ignore
                     await web3authInstance.initModal();
-                } else if (typeof web3authInstance.init === 'function') {
+                } else {
                     await web3authInstance.init();
                 }
 
@@ -107,70 +91,68 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 setIsLoading(false);
             }
         };
+
         init();
     }, []);
 
-    const handlePostLogin = async (newProvider: IProvider, authInstance: any) => {
-        if (!authInstance) return;
-        const userInfo = await authInstance.getUserInfo();
-        setUser(userInfo);
+    const handlePostLogin = async (newProvider: IProvider | null, authInstance: Web3Auth) => {
+        if (!newProvider || !authInstance) return;
 
-        const address = await getSolanaAddress(newProvider);
-        setWalletAddress(address);
+        try {
+            const userInfo = await authInstance.getUserInfo();
+            setUser(userInfo);
 
-        // Sync to Supabase
-        if (userInfo && address) {
-            syncUserToSupabase(userInfo, address);
+            // Get Solana Address
+            // @ts-ignore - Request method fix
+            const accounts = await newProvider.request({ method: "getAccounts" });
+            const address = (accounts as string[])[0];
+            setWalletAddress(address);
+
+            if (userInfo && address) {
+                await syncUserToSupabase(userInfo, address);
+            }
+        } catch (error) {
+            console.error("Post Login Error:", error);
         }
     };
 
     const syncUserToSupabase = async (userInfo: any, address: string) => {
         try {
-            // Check if user exists
-            const { data: existingUser, error: fetchError } = await supabase
+            const { data: existingUser } = await supabase
                 .from('users')
                 .select('*')
-                .eq('auth_id', userInfo.verifierId || userInfo.email) // Fallback to email if verifierId missing
-                .single();
+                .eq('auth_id', userInfo.verifierId || userInfo.email)
+                .maybeSingle();
 
             if (existingUser) {
-                // Update login time
                 await supabase
                     .from('users')
                     .update({ last_login: new Date().toISOString() })
                     .eq('id', existingUser.id);
-
                 setBalance(existingUser.balance_kes || 0);
             } else {
-                // Create new user
-                const { data: newUser, error: insertError } = await supabase
+                const { error } = await supabase
                     .from('users')
-                    .insert([
-                        {
-                            auth_id: userInfo.verifierId || userInfo.email,
-                            username: userInfo.name || "Anonymous",
-                            wallet_address: address,
-                            balance_kes: 0, // Start with 0 or bonus?
-                            total_wins: 0
-                        }
-                    ])
-                    .select()
-                    .single();
-
-                if (newUser) {
+                    .insert([{
+                        auth_id: userInfo.verifierId || userInfo.email,
+                        username: userInfo.name || "Anonymous",
+                        wallet_address: address,
+                        balance_kes: 0,
+                        total_wins: 0
+                    }]);
+                if (!error) {
                     setBalance(0);
-                    toast.success("Welcome! Account created.");
+                    toast.success("Account Created!");
                 }
             }
         } catch (err) {
             console.error("DB Sync Error:", err);
-            // Don't block login on DB error, just log
         }
     };
 
     const login = async () => {
         if (!web3auth) {
-            console.error("Web3Auth not initialized yet");
+            toast.error("Loading login...");
             return;
         }
         try {
@@ -178,10 +160,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setProvider(web3authProvider);
             if (web3authProvider) {
                 await handlePostLogin(web3authProvider, web3auth);
-                toast.success("Logged in successfully!");
+                toast.success("Logged in!");
             }
         } catch (error) {
-            console.error(error);
+            console.error("Login Failed:", error);
             toast.error("Login failed");
         }
     };
@@ -195,7 +177,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setWalletAddress(null);
             toast.success("Logged out");
         } catch (error) {
-            console.error(error);
+            console.error("Logout Failed:", error);
         }
     };
 
