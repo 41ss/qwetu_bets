@@ -1,53 +1,85 @@
 import { create } from "zustand";
+import { supabase } from "@/lib/supabase";
+import toast from "react-hot-toast";
 
 type BetResult = {
-    outcome: "WIN" | "LOSS";
+    outcome: "WIN" | "LOSS" | "PENDING";
     pointsChange: number;
 };
 
 type GameState = {
     points: number;
     streak: number;
-    // Actions
-    placeBet: (direction: "YES" | "NO" | "SKIP") => BetResult | null;
+    selectedStake: number;
+    setPoints: (points: number) => void;
+    setSelectedStake: (stake: number) => void;
+    // Parameters strictly defined to prevent UUID conversion errors
+    placeBet: (
+        direction: "YES" | "NO" | "SKIP", 
+        marketId: string, 
+        authId: string
+    ) => Promise<BetResult | null>;
     resetGame: () => void;
 };
 
 export const useGameStore = create<GameState>((set, get) => ({
-    points: 1000,
+    points: 0,
     streak: 0,
+    selectedStake: 150,
 
-    placeBet: (direction) => {
+    setPoints: (points) => set({ points }),
+    setSelectedStake: (stake) => set({ selectedStake: stake }),
+
+    placeBet: async (direction, marketId, authId) => {
         if (direction === "SKIP") return null;
 
         const currentPoints = get().points;
-        const cost = 50;
+        const stake = get().selectedStake;
 
-        // Deduct cost
-        // For demo, allow negative? Let's stop at 0 ideally, but for "fun" maybe just go negative or stop.
-        // Let's allow negative for now to not block interaction.
+        // 1. Optimistic Update (Immediate UI feedback)
+        set({ points: currentPoints - stake });
 
-        let newPoints = currentPoints - cost;
-        let newStreak = get().streak;
-        let result: BetResult;
+        try {
+            // 2. RPC Call
+            // NOTE: The keys p_market_id, p_direction, etc., must match the SQL parameters exactly
+            const { data, error } = await supabase.rpc('place_bet', {
+                p_market_id: marketId,
+                p_direction: direction,
+                p_stake: stake,
+                p_auth_id: authId
+            });
 
-        // 40% Chance to Win
-        const isWin = Math.random() < 0.4;
+            if (error) throw error;
 
-        if (isWin) {
-            newPoints += 100; // Net +50
-            newStreak += 1;
-            result = { outcome: "WIN", pointsChange: 50 };
-        } else {
-            newStreak = 0;
-            result = { outcome: "LOSS", pointsChange: -50 };
+            // 3. Success Logic
+            // In a parimutuel market, the outcome is always PENDING until the admin resolves it
+            set(state => ({ streak: state.streak + 1 }));
+            
+            return { 
+                outcome: "PENDING", 
+                pointsChange: -stake 
+            };
+
+        } catch (error: any) {
+            console.error("🚫 Bet Error Details:", error);
+            
+            // 4. Rollback Optimistic UI
+            set({ points: currentPoints });
+
+            // Handle specific PostgreSQL errors
+            if (error.code === '22P02') {
+                toast.error("System Error: Invalid ID Format");
+            } else if (error.message?.includes("Insufficient balance")) {
+                toast.error("Low Balance! Top up to continue.");
+            } else {
+                toast.error("Transaction failed. Please try again.");
+            }
+
+            return null;
         }
-
-        set({ points: newPoints, streak: newStreak });
-        return result;
     },
 
     resetGame: () => {
-        set({ points: 1000, streak: 0 });
+        set({ points: 0, streak: 0 });
     },
 }));

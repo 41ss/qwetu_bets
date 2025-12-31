@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ShieldCheck, Smartphone } from "lucide-react";
-import { Market } from "@/data/markets";
+import { Market } from "@/hooks/useMarkets";
 import { calculatePotentialWin, formatCurrency, PLATFORM_FEE } from "@/utils/betting";
 
 type PaymentModalProps = {
@@ -22,7 +22,11 @@ export default function PaymentModal({
     stake,
     intent,
 }: PaymentModalProps) {
-    const { grossWin, feeDeduction, netPayout } = calculatePotentialWin(stake, market.poolAmount, market.participantCount);
+    const poolAmount = (market.pool_yes || 0) + (market.pool_no || 0);
+    // Approximate participant count if not available, or just pass 0 as it's for simulation
+    const participantCount = 0;
+
+    const { grossWin, feeDeduction, netPayout } = calculatePotentialWin(stake, poolAmount, participantCount);
 
     return (
         <AnimatePresence>

@@ -1,148 +1,145 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
-import { Market } from "@/data/markets";
-import SwipeCard from "./SwipeCard";
 import { RefreshCcw } from "lucide-react";
-import PaymentModal from "./PaymentModal";
 import toast from "react-hot-toast";
-import confetti from "canvas-confetti";
+
+import SwipeCard from "./SwipeCard";
+import PaymentModal from "./PaymentModal";
+import DepositModal from "./DepositModal";
+import SkeletonCard from "./SkeletonCard";
+import StakeSelector from "./StakeSelector";
+
 import { useGameStore } from "@/store/gameStore";
 import { useMarkets } from "@/hooks/useMarkets";
-import SkeletonCard from "./SkeletonCard";
 import { useAuth } from "@/contexts/AuthProvider";
-import DepositModal from "./DepositModal";
 import { initiateDeposit } from "@/lib/payments";
 
 export default function Deck() {
-    const { markets: dataMarkets, isLoading, usingMock } = useMarkets();
-    // Local state to handle removed cards (swiped away)
+    // 1. Fetch real markets from Supabase
+    const { markets: dataMarkets, isLoading } = useMarkets();
     const [removedIds, setRemovedIds] = useState<string[]>([]);
 
-    const { placeBet } = useGameStore();
-
-    const markets = dataMarkets.filter(m => !removedIds.includes(m.id));
+    // Filter cards to only show those not swiped
+    const activeMarkets = dataMarkets.filter(m => !removedIds.includes(m.id));
 
     const { user, balance, refreshBalance } = useAuth();
-    // Payment Modal State
-    const [modalOpen, setModalOpen] = useState(false);
+    const { setPoints, placeBet, selectedStake } = useGameStore();
+
+    // Sync local store balance with Auth balance
+    useEffect(() => {
+        setPoints(balance);
+    }, [balance, setPoints]);
+
+    // Modal States
+    const [confirmModalOpen, setConfirmModalOpen] = useState(false);
     const [depositModalOpen, setDepositModalOpen] = useState(false);
     const [pendingIntent, setPendingIntent] = useState<{ id: string, intent: "YES" | "NO" } | null>(null);
 
-    const handleSwipeIntent = (id: string, intent: "YES" | "NO" | "SKIP") => {
+    // 2. The High-Level Swipe Handler
+    const handleSwipe = async (id: string, intent: "YES" | "NO" | "SKIP") => {
         if (intent === "SKIP") {
             setRemovedIds(prev => [...prev, id]);
             return;
         }
 
-        // 1. GATEKEEPER: Check Balance
-        if (balance < 50) {
+        // Check if current balance covers the stake selected in StakeSelector
+        if (balance < selectedStake) {
+            setPendingIntent({ id, intent });
             setDepositModalOpen(true);
             return;
         }
 
-        // Interrupt for Payment
-        const market = markets.find(m => m.id === id);
-        if (!market) return;
-
+        // Open confirmation modal
         setPendingIntent({ id, intent });
-        setModalOpen(true);
+        setConfirmModalOpen(true);
     };
 
-    const handleDeposit = async (phone: string, amount: number) => {
-        if (!user) {
-            toast.error("Please login first!");
-            return;
-        }
-        await initiateDeposit(amount, phone, user.verifierId || user.email, refreshBalance);
-    };
-
-    const handleConfirmPayment = () => {
-        if (!pendingIntent) return;
+    const handleConfirmBet = async () => {
+        if (!pendingIntent || !user) return;
 
         const { id, intent } = pendingIntent;
+        setConfirmModalOpen(false);
 
-        // Process "Payment" (Game Store logic)
-        const result = placeBet(intent);
+        // Execute the RPC call to public.place_bet
+        const success = await placeBet(intent, id, user.verifierId || user.email);
 
-        setModalOpen(false);
-
-        // Simulate API delay / Payment processing visual
-        setTimeout(() => {
-            if (result?.outcome === "WIN") {
-                confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-                toast.success(`Payment Success! You Won +${result.pointsChange} pts`, { icon: '💸' });
-            } else {
-                toast.error(`Payment Success! But you lost...`, { icon: '📉' });
-            }
-
-            // Remove card
+        if (success) {
+            toast.success(`KES ${selectedStake} bet on ${intent}!`, { icon: '🔥' });
             setRemovedIds(prev => [...prev, id]);
-            setPendingIntent(null);
-        }, 500);
+            refreshBalance(); // Trigger balance refresh from DB
+        }
+
+        setPendingIntent(null);
     };
 
-    const resetDeck = () => {
-        setRemovedIds([]);
-    };
+    const resetDeck = () => setRemovedIds([]);
 
-    if (isLoading) {
-        return (
-            <div className="relative w-full max-w-md h-[600px] flex items-center justify-center">
-                <SkeletonCard />
-            </div>
-        );
-    }
+    if (isLoading) return <SkeletonCard />;
 
-    const currentMarket = markets[0];
+    // Helper to get the market data for the modal
+    const currentPendingMarket = activeMarkets.find(m => m.id === pendingIntent?.id);
 
     return (
-        <div className="relative w-full max-w-md h-[600px] flex items-center justify-center">
-            <AnimatePresence>
-                {markets.map((market, index) => {
-                    const isTop = index === 0;
-                    return (
-                        <SwipeCard
-                            key={market.id}
-                            market={market}
-                            active={isTop}
-                            onSwipeIntent={handleSwipeIntent}
-                        />
-                    );
-                }).reverse()}
-            </AnimatePresence>
+        <div className="relative w-full max-w-md h-[600px] flex flex-col items-center justify-center">
 
-            {currentMarket && pendingIntent && (
+            <div className="relative w-full h-full flex items-center justify-center">
+                <AnimatePresence>
+                    {activeMarkets.length > 0 ? (
+                        activeMarkets.map((market, index) => {
+                            const isTop = index === 0;
+                            return (
+                                <SwipeCard
+                                    key={market.id}
+                                    market={market}
+                                    active={isTop}
+                                    // Use the unified handler
+                                    onSwipeIntent={(intent) => handleSwipe(market.id, intent as "YES" | "NO" | "SKIP")}
+
+                                />
+                            );
+                        }).reverse()
+                    ) : (
+                        <div className="flex flex-col items-center text-center p-8 animate-in fade-in zoom-in">
+                            <h2 className="text-2xl font-bold text-white mb-2">Caught Up!</h2>
+                            <p className="text-white/60 mb-6">No more predictions available.</p>
+                            <button
+                                onClick={resetDeck}
+                                className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-full font-bold"
+                            >
+                                <RefreshCcw className="w-4 h-4" /> Start Over
+                            </button>
+                        </div>
+                    )}
+                </AnimatePresence>
+            </div>
+
+            {/* Stake selection bar (150, 300, 500, Custom) */}
+            <div className="flex items-center justify-center w-full relative">
+                <StakeSelector />
+            </div>
+
+            {/* Confirmation Modal */}
+            {currentPendingMarket && pendingIntent && (
                 <PaymentModal
-                    isOpen={modalOpen}
-                    onCancel={() => setModalOpen(false)}
-                    onConfirm={handleConfirmPayment}
-                    market={currentMarket}
-                    stake={50}
-                    intent={pendingIntent.intent}
+                    isOpen={confirmModalOpen}
+                    onCancel={() => {
+                        setConfirmModalOpen(false);
+                        setPendingIntent(null);
+                    }}
+                    onConfirm={handleConfirmBet}
+                    market={currentPendingMarket} // TS is happy now because of the check above
+                    stake={selectedStake}
+                    intent={pendingIntent.intent} // TS is happy because pendingIntent is verified
                 />
             )}
 
+            {/* Deposit Modal (Fonbnk Iframe) */}
             <DepositModal
                 isOpen={depositModalOpen}
                 onClose={() => setDepositModalOpen(false)}
-                onDeposit={handleDeposit}
             />
-
-            {markets.length === 0 && (
-                <div className="flex flex-col items-center justify-center text-center p-8">
-                    <h2 className="text-3xl font-display font-bold text-white mb-4">You're all caught up!</h2>
-                    <p className="text-white/60 mb-8">No more predictions for now.</p>
-                    <button
-                        onClick={resetDeck}
-                        className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-full font-bold hover:bg-gray-200 transition-colors"
-                    >
-                        <RefreshCcw className="w-5 h-5" />
-                        Start Over
-                    </button>
-                </div>
-            )}
         </div>
     );
 }

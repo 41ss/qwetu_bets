@@ -1,47 +1,59 @@
-import useSWR from "swr";
+import { useEffect } from "react";
+import useSWR, { mutate } from "swr";
 import { supabase } from "@/lib/supabase";
-import { Market, markets as mockMarkets } from "@/data/markets";
 
-const fetcher = async () => {
-    // Try detailed fetch first
-    const { data, error } = await supabase
-        .from("markets")
-        .select("*")
-        .eq("status", "ACTIVE");
-
-    if (error) {
-        throw error;
-    }
-
-    if (!data || data.length === 0) {
-        return [];
-    }
-
-    return data.map((item: any) => ({
-        id: item.id.toString(),
-        question: item.question,
-        category: item.category || "General",
-        color: item.color || "bg-gray-800",
-        poolAmount: item.pool_amount || 0,
-        endTime: item.end_time || new Date().toISOString(),
-        participantCount: (item.yes_count || 0) + (item.no_count || 0),
-    })) as Market[];
-};
+// 1. Define and Export the Market Interface
+export interface Market {
+    id: string;
+    question: string;
+    category?: string;
+    color?: string;
+    pool_yes: number;
+    pool_no: number;
+    end_time: string;
+    image_url?: string;
+    status: "ACTIVE" | "LOCKED" | "RESOLVED";
+    outcome?: "YES" | "NO";
+}
 
 export function useMarkets() {
-    const { data, error, isLoading } = useSWR("markets", fetcher, {
-        revalidateOnFocus: false,
-        shouldRetryOnError: false, // Don't retry infinitely if DB is down
-    });
+    const fetcher = async () => {
+        const { data, error } = await supabase
+            .from("markets")
+            .select("*")
+            .eq("status", "ACTIVE")
+            .order('created_at', { ascending: false });
 
-    // Fallback Logic
-    const shouldUseMock = error || (data && data.length === 0);
-    const finalMarkets: Market[] = shouldUseMock ? mockMarkets : (data || []);
+        if (error) throw error;
+        
+        // Ensure numbers are treated as numbers
+        return (data || []).map(m => ({
+            ...m,
+            pool_yes: Number(m.pool_yes || 0),
+            pool_no: Number(m.pool_no || 0)
+        }));
+    };
+
+    const { data: markets, error, isLoading } = useSWR("active_markets", fetcher);
+
+    useEffect(() => {
+        const channel = supabase
+            .channel('market_changes')
+            .on(
+                'postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'markets' },
+                () => {
+                    mutate("active_markets");
+                }
+            )
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, []);
 
     return {
-        markets: finalMarkets,
-        isLoading: isLoading && !error && !data, // Only loading if no data AND no error
-        isError: !!error,
-        usingMock: shouldUseMock
+        markets: (markets || []) as Market[],
+        isLoading,
+        isError: !!error
     };
 }

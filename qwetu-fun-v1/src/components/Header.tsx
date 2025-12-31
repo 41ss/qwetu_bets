@@ -1,7 +1,8 @@
 "use client";
 
 import { useGameStore } from "@/store/gameStore";
-import { Sparkles, Flame, Coins, LogIn, LogOut, Wallet } from "lucide-react";
+import { Sparkles, Flame, Coins, LogIn, LogOut, Wallet, TrendingUp } from "lucide-react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthProvider";
@@ -21,15 +22,25 @@ export default function Header() {
         }
     }, [points, isPointsChanged]);
 
+
     return (
         <header className="fixed top-0 left-0 w-full p-6 z-50 flex justify-between items-center bg-gradient-to-b from-[#0a0a0a] to-transparent pointer-events-none">
-            <div className="flex items-center gap-2 pointer-events-auto">
-                <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-lg shadow-purple-500/20">
-                    <Sparkles className="text-black w-5 h-5 fill-current" />
-                </div>
-                <h1 className="text-2xl font-display font-bold text-white tracking-tight hidden sm:block">
-                    Qwetu<span className="text-purple-400">Fun</span>
-                </h1>
+            <div className="flex items-center gap-6 pointer-events-auto">
+                <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                    <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-lg shadow-purple-500/20">
+                        <Sparkles className="text-black w-5 h-5 fill-current" />
+                    </div>
+                    <h1 className="text-2xl font-display font-bold text-white tracking-tight hidden sm:block">
+                        Qwetu<span className="text-purple-400">Fun</span>
+                    </h1>
+                </Link>
+
+                <nav className="hidden md:flex items-center gap-4">
+                    <Link href="/activity" className="text-sm font-bold text-gray-400 hover:text-white transition-colors flex items-center gap-1">
+                        <TrendingUp className="w-4 h-4" />
+                        Activity
+                    </Link>
+                </nav>
             </div>
 
             <div className="flex items-center gap-3 pointer-events-auto">

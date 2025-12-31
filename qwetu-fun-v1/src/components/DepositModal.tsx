@@ -1,39 +1,96 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Smartphone, CheckCircle, Loader2 } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthProvider"; 
 
 interface DepositModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onDeposit: (phone: string, amount: number) => Promise<void>;
 }
 
-const PRESET_AMOUNTS = [50, 100, 200, 500, 1000];
-
-export default function DepositModal({ isOpen, onClose, onDeposit }: DepositModalProps) {
+export default function DepositModal({ isOpen, onClose }: DepositModalProps) {
+    const { walletAddress } = useAuth();
     const [amount, setAmount] = useState<number | "">("");
-    const [phone, setPhone] = useState("");
-    const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+    const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    useEffect(() => {
+        if (!isOpen) {
+            setIframeUrl(null);
+            setAmount("");
+            setLoading(false);
+        }
+    }, [isOpen]);
+
+    const handleProceed = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!amount || !phone) return;
+        
+        // 1. Validation
+        if (!amount || Number(amount) < 200) {
+            alert("Minimum deposit is 200 KES");
+            return;
+        }
+        if (!walletAddress) {
+            alert("Wallet not connected. Please log in again.");
+            return;
+        }
 
-        setStatus("loading");
+        setLoading(true);
+
         try {
-            await onDeposit(phone, Number(amount));
-            setStatus("success");
-            setTimeout(() => {
-                setStatus("idle");
-                onClose();
-                setAmount("");
-                setPhone("");
-            }, 2000);
-        } catch (error) {
-            setStatus("error");
-            setTimeout(() => setStatus("idle"), 3000);
+            console.log("💰 Initiating deposit for:", amount);
+
+            // 2. Request Token from Backend
+            const res = await fetch('/api/integrations/fonbnk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount: Number(amount) })
+            });
+
+            const data = await res.json();
+            console.log("📦 Server Response:", data);
+
+            if (!res.ok || data.error) {
+                throw new Error(data.error || "Server rejected the request");
+            }
+
+            // 3. Extract Signature (The Critical Fix)
+            // We explicitly look for 'token' first, because that's what your server sends.
+            const signature = data.token || data.signature;
+
+            if (!signature) {
+                throw new Error("Server returned success but no 'token' or 'signature' was found.");
+            }
+
+            // 4. Build the Fonbnk URL
+            const baseUrl = "https://pay.fonbnk.com"; 
+            const source = "PIqrBEki"; 
+
+            // Ensure all values are strings for URLSearchParams
+            const params = new URLSearchParams({
+                source: source,
+                signature: signature,
+                network: "SOLANA",      
+                asset: "USDC",          
+                address: walletAddress, 
+                amount: amount.toString(), 
+                currency: "local",     
+                countryIsoCode: "KE",   
+                redirectUrl: window.location.href 
+            });
+
+            const finalUrl = `${baseUrl}?${params.toString()}`;
+            console.log("🔗 Generated Iframe URL:", finalUrl);
+            
+            setIframeUrl(finalUrl);
+
+        } catch (error: any) {
+            console.error("❌ Payment Init Failed:", error);
+            alert(`Payment Error: ${error.message}`);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -41,114 +98,79 @@ export default function DepositModal({ isOpen, onClose, onDeposit }: DepositModa
         <AnimatePresence>
             {isOpen && (
                 <>
-                    {/* Backdrop */}
                     <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                         onClick={onClose}
-                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 transition-opacity"
+                        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
                     />
 
-                    {/* Bottom Sheet Modal */}
                     <motion.div
-                        initial={{ y: "100%" }}
-                        animate={{ y: 0 }}
-                        exit={{ y: "100%" }}
+                        initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
                         transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                        className="fixed bottom-0 left-0 right-0 z-50 bg-[#121212] border-t border-x border-white/10 rounded-t-3xl p-6 pb-10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] md:static md:max-w-md md:rounded-3xl md:m-auto md:translate-y-0"
-                        style={{
-                            // On desktop, we want it centered, handled by md: classes above effectively if we were using a flex container wrapper from outside. 
-                            // But here we are fixed. Let's make it work for both.
-                            // The simplest way to achieve bottom sheet on mobile and center on desktop without complex conditionals is using specific layout classes.
-                            // For this specific 'Bottom Sheet' feel request, prioritising mobile 
-                        }}
+                        className="fixed bottom-0 left-0 right-0 z-50 bg-[#121212] border-t border-white/10 rounded-t-3xl shadow-2xl md:static md:max-w-md md:m-auto md:rounded-3xl"
                     >
-                        {/* Drag Handle for visual cue */}
-                        <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-6 md:hidden" />
-
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                <span className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/30">
-                                    <span className="text-green-500 font-bold text-xs">M-PESA</span>
-                                </span>
-                                Top Up to Play!
-                            </h2>
-                            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                        {/* Header */}
+                        <div className="flex justify-between items-center p-6 border-b border-white/5">
+                            <h2 className="text-xl font-bold text-white">Top Up Balance</h2>
+                            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full">
                                 <X className="w-5 h-5 text-gray-400" />
                             </button>
                         </div>
 
-                        {status === "success" ? (
-                            <div className="flex flex-col items-center justify-center py-8 text-center animate-in fade-in zoom-in">
-                                <CheckCircle className="w-16 h-16 text-emerald-500 mb-4" />
-                                <h3 className="text-xl font-bold text-white mb-2">Deposit Initiated!</h3>
-                                <p className="text-gray-400">Check your phone to complete payment.</p>
-                            </div>
-                        ) : (
-                            <form onSubmit={handleSubmit} className="space-y-6">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-2">Amount (KES)</label>
-                                    <div className="grid grid-cols-3 gap-3 mb-3">
-                                        {[50, 100, 200].map((amt) => (
+                        <div className="p-6">
+                            {iframeUrl ? (
+                                // THE WIDGET IFRAME
+                                <div className="rounded-2xl overflow-hidden border border-white/10 bg-white h-[600px] relative">
+                                    <iframe 
+                                        src={iframeUrl} 
+                                        className="w-full h-full" 
+                                        frameBorder="0"
+                                        allow="payment"
+                                    />
+                                    <button 
+                                        onClick={() => setIframeUrl(null)}
+                                        className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full text-xs hover:bg-black"
+                                    >
+                                        Cancel / Change Amount
+                                    </button>
+                                </div>
+                            ) : (
+                                // THE AMOUNT SELECTOR
+                                <form onSubmit={handleProceed} className="space-y-6">
+                                    <div className="grid grid-cols-3 gap-3">
+                                        {[200, 500, 1000].map((amt) => (
                                             <button
-                                                key={amt}
-                                                type="button"
-                                                onClick={() => setAmount(amt)}
-                                                className={`py-3 rounded-xl text-sm font-bold transition-all border ${amount === amt
-                                                    ? "bg-emerald-500 text-black border-emerald-500 shadow-lg shadow-emerald-500/20"
-                                                    : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
-                                                    }`}
+                                                key={amt} type="button" onClick={() => setAmount(amt)}
+                                                className={`py-3 rounded-xl text-sm font-bold border transition-all ${
+                                                    amount === amt ? "bg-blue-600 border-blue-500 text-white" : "bg-white/5 border-white/10 text-gray-400"
+                                                }`}
                                             >
                                                 {amt}
                                             </button>
                                         ))}
                                     </div>
-                                    <input
-                                        type="number"
-                                        placeholder="Or enter amount..."
-                                        value={amount}
-                                        onChange={(e) => setAmount(Number(e.target.value))}
-                                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-gray-600 focus:outline-none focus:border-emerald-500 transition-colors font-mono text-lg"
-                                        required
-                                        min={10}
-                                    />
-                                </div>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-2">M-Pesa Number</label>
                                     <div className="relative">
-                                        <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">KES</span>
                                         <input
-                                            type="tel"
-                                            placeholder="07..."
-                                            value={phone}
-                                            onChange={(e) => setPhone(e.target.value)}
-                                            className="w-full bg-black/50 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white placeholder:text-gray-600 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
-                                            required
+                                            type="number"
+                                            value={amount}
+                                            onChange={(e) => setAmount(Number(e.target.value))}
+                                            placeholder="Enter Amount"
+                                            className="w-full bg-black/50 border border-white/10 rounded-xl pl-14 pr-4 py-4 text-white text-lg font-mono focus:border-blue-500 outline-none"
                                         />
                                     </div>
-                                </div>
 
-                                <button
-                                    type="submit"
-                                    disabled={status === "loading" || !phone || !amount}
-                                    className="w-full bg-[#25D366] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-green-500/20 active:scale-95 flex items-center justify-center gap-2"
-                                >
-                                    {status === "loading" ? (
-                                        <>
-                                            <Loader2 className="w-5 h-5 animate-spin" />
-                                            Sending Request...
-                                        </>
-                                    ) : (
-                                        "Pay with M-Pesa"
-                                    )}
-                                </button>
-                                <p className="text-center text-[10px] uppercase tracking-widest text-gray-600">
-                                    Secure Payment
-                                </p>
-                            </form>
-                        )}
+                                    <button
+                                        type="submit"
+                                        disabled={loading || !amount || Number(amount) < 200}
+                                        className="w-full bg-[#25D366] text-black font-bold py-4 rounded-xl shadow-lg shadow-green-500/20 disabled:opacity-50 flex items-center justify-center gap-2 hover:brightness-110"
+                                    >
+                                        {loading ? <Loader2 className="animate-spin" /> : "Pay with M-Pesa"}
+                                    </button>
+                                </form>
+                            )}
+                        </div>
                     </motion.div>
                 </>
             )}

@@ -4,8 +4,11 @@ export type Market = {
     category: string;
     color: string;
     poolAmount: number;
+    yesPool?: number;
+    noPool?: number;
     endTime: string;
     participantCount: number;
+    imageUrl?: string;
 };
 
 export const markets: Market[] = [
