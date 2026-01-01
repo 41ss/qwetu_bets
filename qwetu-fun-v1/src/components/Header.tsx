@@ -1,7 +1,7 @@
 "use client";
 
 import { useGameStore } from "@/store/gameStore";
-import { Sparkles, Flame, Coins, LogIn, LogOut, Wallet, TrendingUp } from "lucide-react";
+import { Sparkles, Flame, Coins, LogIn, LogOut, Wallet, TrendingUp, Grid, Trophy } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
@@ -35,15 +35,23 @@ export default function Header() {
                     </h1>
                 </Link>
 
-                <nav className="hidden md:flex items-center gap-2">
+                <nav className="hidden md:flex items-center gap-4">
                     <Link href="/activity" className="text-sm font-bold text-gray-400 hover:text-white transition-colors flex items-center gap-1">
                         <TrendingUp className="w-4 h-4" />
                         Activity
                     </Link>
+                    <Link href="/categories" className="text-sm font-bold text-gray-400 hover:text-white transition-colors flex items-center gap-1">
+                        <Grid className="w-4 h-4" />
+                        Categories
+                    </Link>
+                    <Link href="/leaderboard" className="text-sm font-bold text-gray-400 hover:text-white transition-colors flex items-center gap-1">
+                        <Trophy className="w-4 h-4" />
+                        Leaderboard
+                    </Link>
                 </nav>
             </div>
 
-            
+
 
             <div className="flex items-center gap-3 pointer-events-auto">
                 {/* Streak Badge (Only show if streak > 0) */}
