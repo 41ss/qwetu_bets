@@ -35,13 +35,15 @@ export default function Header() {
                     </h1>
                 </Link>
 
-                <nav className="hidden md:flex items-center gap-4">
+                <nav className="hidden md:flex items-center gap-2">
                     <Link href="/activity" className="text-sm font-bold text-gray-400 hover:text-white transition-colors flex items-center gap-1">
                         <TrendingUp className="w-4 h-4" />
                         Activity
                     </Link>
                 </nav>
             </div>
+
+            
 
             <div className="flex items-center gap-3 pointer-events-auto">
                 {/* Streak Badge (Only show if streak > 0) */}
