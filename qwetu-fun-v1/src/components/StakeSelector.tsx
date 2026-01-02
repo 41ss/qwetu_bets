@@ -15,7 +15,7 @@ export default function StakeSelector() {
     const handleCustomSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const amt = Number(customAmount);
-        if (amt >= 500) {
+        if (amt >= 150) {
             setSelectedStake(amt);
             setIsCustomOpen(false);
             setCustomAmount("");
@@ -86,15 +86,15 @@ export default function StakeSelector() {
                                             type="number"
                                             value={customAmount}
                                             onChange={(e) => setCustomAmount(e.target.value)}
-                                            placeholder="Min 500"
+                                            placeholder="Min 150"
                                             className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500 placeholder:text-white/20"
-                                            min={500}
+                                            min={150}
                                             autoFocus
                                         />
                                     </div>
                                     <button
                                         type="submit"
-                                        disabled={!customAmount || Number(customAmount) < 500}
+                                        disabled={!customAmount || Number(customAmount) < 150}
                                         className="w-full bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-400 text-black text-xs font-bold py-2 rounded-lg flex items-center justify-center gap-1"
                                     >
                                         <Check className="w-3 h-3" />

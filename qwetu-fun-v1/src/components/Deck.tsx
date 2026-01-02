@@ -17,64 +17,64 @@ import { useAuth } from "@/contexts/AuthProvider";
 import { initiateDeposit } from "@/lib/payments";
 
 export default function Deck() {
+    const { user, balance, refreshBalance } = useAuth();
     // 1. Fetch real markets from Supabase
-    const { markets: dataMarkets, isLoading } = useMarkets();
+    const { markets: dataMarkets, isLoading, refresh } = useMarkets(user?.id); 
     const [removedIds, setRemovedIds] = useState<string[]>([]);
 
     // Filter cards to only show those not swiped
     const activeMarkets = dataMarkets.filter(m => !removedIds.includes(m.id));
-
-    const { user, balance, refreshBalance } = useAuth();
     const { setPoints, placeBet, selectedStake } = useGameStore();
+
 
     // Sync local store balance with Auth balance
     useEffect(() => {
         setPoints(balance);
     }, [balance, setPoints]);
 
-    // Modal States
     const [confirmModalOpen, setConfirmModalOpen] = useState(false);
     const [depositModalOpen, setDepositModalOpen] = useState(false);
     const [pendingIntent, setPendingIntent] = useState<{ id: string, intent: "YES" | "NO" } | null>(null);
 
-    // 2. The High-Level Swipe Handler
     const handleSwipe = async (id: string, intent: "YES" | "NO" | "SKIP") => {
         if (intent === "SKIP") {
             setRemovedIds(prev => [...prev, id]);
             return;
         }
 
-        // Check if current balance covers the stake selected in StakeSelector
         if (balance < selectedStake) {
             setPendingIntent({ id, intent });
             setDepositModalOpen(true);
             return;
         }
 
-        // Open confirmation modal
         setPendingIntent({ id, intent });
         setConfirmModalOpen(true);
     };
 
     const handleConfirmBet = async () => {
         if (!pendingIntent || !user) return;
-
         const { id, intent } = pendingIntent;
         setConfirmModalOpen(false);
 
-        // Execute the RPC call to public.place_bet
         const success = await placeBet(intent, id, user.verifierId || user.email);
 
         if (success) {
             toast.success(`KES ${selectedStake} bet on ${intent}!`, { icon: '🔥' });
-            setRemovedIds(prev => [...prev, id]);
-            refreshBalance(); // Trigger balance refresh from DB
+            
+            // 2. Refresh the hook to pull the new list (which will now exclude this market)
+            refresh(); 
+            
+            refreshBalance();
         }
-
         setPendingIntent(null);
     };
 
-    const resetDeck = () => setRemovedIds([]);
+    const resetDeck = () => {
+        // 3. This now only resets "SKIPPED" cards. 
+        // Cards you actually BET on are filtered out by the database query above.
+        setRemovedIds([]);
+    };
 
     if (isLoading) return <SkeletonCard />;
 
