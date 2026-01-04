@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthProvider"; 
+import { useAuth } from "@/contexts/AuthProvider";
 
 interface DepositModalProps {
     isOpen: boolean;
@@ -11,7 +11,7 @@ interface DepositModalProps {
 }
 
 export default function DepositModal({ isOpen, onClose }: DepositModalProps) {
-    const { walletAddress } = useAuth();
+    const { walletAddress, user } = useAuth();
     const [amount, setAmount] = useState<number | "">("");
     const [iframeUrl, setIframeUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -25,74 +25,48 @@ export default function DepositModal({ isOpen, onClose }: DepositModalProps) {
     }, [isOpen]);
 
     const handleProceed = async (e: React.FormEvent) => {
-        e.preventDefault();
-        
-        // 1. Validation
-        if (!amount || Number(amount) < 200) {
-            alert("Minimum deposit is 200 KES");
-            return;
-        }
-        if (!walletAddress) {
-            alert("Wallet not connected. Please log in again.");
-            return;
-        }
+    e.preventDefault();
+    if (!amount || !walletAddress) return;
+    console.log("MY WALLET ADDRESS:", walletAddress);
 
-        setLoading(true);
+    setLoading(true);
+    try {
+        // A. Send address to backend so it can be included in the signature
+        const res = await fetch('/api/integrations/fonbnk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                amount: Number(amount),
+                address: walletAddress, // CRITICAL
+                metadata: { user_id: user?.id || "unknown" }
+            })
+        });
 
-        try {
-            console.log("💰 Initiating deposit for:", amount);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Signing failed");
 
-            // 2. Request Token from Backend
-            const res = await fetch('/api/integrations/fonbnk', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ amount: Number(amount) })
-            });
+        // B. Build URL - Values must be identical to the JWT payload
+        const baseUrl = "https://sandbox-pay.fonbnk.com";
+        const params = new URLSearchParams({
+            source: "fVwMdraP",
+            signature: data.signature,
+            network: "SOLANA",
+            asset: "USDC",
+            address: walletAddress,
+            amount: amount.toString(),
+            currency: "local",
+            countryIsoCode: "KE",
+            redirectUrl: window.location.origin
+        });
 
-            const data = await res.json();
-            console.log("📦 Server Response:", data);
+        setIframeUrl(`${baseUrl}?${params.toString()}`);
+    } catch (error: any) {
+        alert(error.message);
+    } finally {
+        setLoading(false);
+    }
+};
 
-            if (!res.ok || data.error) {
-                throw new Error(data.error || "Server rejected the request");
-            }
-
-            // 3. Extract Signature (The Critical Fix)
-            // We explicitly look for 'token' first, because that's what your server sends.
-            const signature = data.token || data.signature;
-
-            if (!signature) {
-                throw new Error("Server returned success but no 'token' or 'signature' was found.");
-            }
-
-            // 4. Build the Fonbnk URL
-            const baseUrl = "https://pay.fonbnk.com"; 
-            const source = "PIqrBEki"; 
-
-            // Ensure all values are strings for URLSearchParams
-            const params = new URLSearchParams({
-                source: source,
-                signature: signature,
-                network: "SOLANA",      
-                asset: "USDC",          
-                address: walletAddress, 
-                amount: amount.toString(), 
-                currency: "local",     
-                countryIsoCode: "KE",   
-                redirectUrl: window.location.href 
-            });
-
-            const finalUrl = `${baseUrl}?${params.toString()}`;
-            console.log("🔗 Generated Iframe URL:", finalUrl);
-            
-            setIframeUrl(finalUrl);
-
-        } catch (error: any) {
-            console.error("❌ Payment Init Failed:", error);
-            alert(`Payment Error: ${error.message}`);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     return (
         <AnimatePresence>
@@ -121,13 +95,13 @@ export default function DepositModal({ isOpen, onClose }: DepositModalProps) {
                             {iframeUrl ? (
                                 // THE WIDGET IFRAME
                                 <div className="rounded-2xl overflow-hidden border border-white/10 bg-white h-[600px] relative">
-                                    <iframe 
-                                        src={iframeUrl} 
-                                        className="w-full h-full" 
+                                    <iframe
+                                        src={iframeUrl}
+                                        className="w-full h-full"
                                         frameBorder="0"
                                         allow="payment"
                                     />
-                                    <button 
+                                    <button
                                         onClick={() => setIframeUrl(null)}
                                         className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full text-xs hover:bg-black"
                                     >
@@ -141,9 +115,8 @@ export default function DepositModal({ isOpen, onClose }: DepositModalProps) {
                                         {[200, 500, 1000].map((amt) => (
                                             <button
                                                 key={amt} type="button" onClick={() => setAmount(amt)}
-                                                className={`py-3 rounded-xl text-sm font-bold border transition-all ${
-                                                    amount === amt ? "bg-blue-600 border-blue-500 text-white" : "bg-white/5 border-white/10 text-gray-400"
-                                                }`}
+                                                className={`py-3 rounded-xl text-sm font-bold border transition-all ${amount === amt ? "bg-blue-600 border-blue-500 text-white" : "bg-white/5 border-white/10 text-gray-400"
+                                                    }`}
                                             >
                                                 {amt}
                                             </button>

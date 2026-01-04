@@ -3,38 +3,40 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request: Request) {
-    const secret = process.env.FONBNK_URL_SIGNATURE_SECRET;
+    const secretBase64 = process.env.FONBNK_URL_SIGNATURE_SECRET;
     
-    if (!secret) {
+    if (!secretBase64) {
         return NextResponse.json({ error: "Missing Secret" }, { status: 500 });
     }
 
     try {
         const body = await request.json();
-        const { amount } = body;
-
+        const { amount, metadata } = body;
         const uid = uuidv4();
         
-        // FONBNK WIDGET REQUIREMENTS:
-        // 1. Must use 'jti' for the unique ID.
-        // 2. 'currency' must match the URL param EXACTLY. We'll use "local".
-        // 3. 'amount' must be a number.
+        // 1. CRITICAL FIX: Decode the Base64 secret into a Buffer
+        // Signing with the raw string will always cause an "Invalid Signature" error.
+        const decodedSecret = Buffer.from(secretBase64, 'base64');
+
         const payload = {
-            jti: uid,
+            jti: uid,           
             amount: Number(amount),
-            currency: "local", // Matches the frontend URL
-            iat: Math.floor(Date.now() / 1000) - 30
+            currency: 'local',
+            countryIsoCode: 'KE', 
+            iat: Math.floor(Date.now() / 1000) - 60, // Increased leeway for clock drift
+            exp: Math.floor(Date.now() / 1000) + 3600, 
+            metadata: metadata 
         };
 
         console.log("📝 SIGNING PAYLOAD:", payload);
 
-        // Sign using the HS256 algorithm
-        const token = jwt.sign(payload, secret, { algorithm: 'HS256' });
+        // 2. Sign using the decoded buffer
+        const token = jwt.sign(payload, decodedSecret, { algorithm: 'HS256' });
 
         return NextResponse.json({ 
             signature: token, 
             uid,
-            debug_payload: payload // This lets us verify in the browser
+            debug_payload: payload 
         });
 
     } catch (error) {

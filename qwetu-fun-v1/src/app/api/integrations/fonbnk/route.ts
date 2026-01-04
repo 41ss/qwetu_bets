@@ -2,46 +2,47 @@ import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 
-const FONBNK_SECRET = process.env.FONBNK_SIGNATURE_SECRET;
-
 export async function POST(request: Request) {
-    if (!FONBNK_SECRET) {
-        console.error("Configuration Error: FONBNK_SIGNATURE_SECRET is missing");
+    const secretBase64 = process.env.FONBNK_URL_SIGNATURE_SECRET;
+    
+    if (!secretBase64) {
+        console.error("❌ Configuration Error: FONBNK_URL_SIGNATURE_SECRET is missing");
         return NextResponse.json({ error: "Server Configuration Error" }, { status: 500 });
     }
 
     try {
         const body = await request.json();
-        const { amount, metadata } = body;
+        const { amount, metadata, address } = body;
 
-        // Basic validation
-        if (!amount || isNaN(amount) || amount < 10) {
-            return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
-        }
+        // 1. DECODE THE SECRET: Buffer.from is mandatory for HS256 with Base64 secrets
+        const decodedSecret = Buffer.from(secretBase64, 'base64');
 
-        // Generate Unique ID for this transaction
-        const uid = uuidv4();
-
-        // Construct Payload
-        // Standard Fonbnk Payload: { uid, amount, currency }
-        // The secret is used to sign this, proving it came from our backend.
+        // 2. CONSTRUCT SYMMETRIC PAYLOAD
+        // Every field here must match the URL parameters built in the frontend
         const payload = {
-            jti: uid,           // Use 'jti' for standard JWT compatibility
+            jti: uuidv4(),
+            nonce: uuidv4(),
+            address: address,       // Sensitive: Must be in JWT
+            network: "SOLANA",      // Sensitive: Must be in JWT
+            asset: "USDC",          // Sensitive: Must be in JWT
             amount: Number(amount),
             currency: 'local',
-            iat: Math.floor(Date.now() / 1000) - 30, // Prevents "Token not yet valid" errors
-            metadata: metadata // Pass user metadata (e.g. user_id)
+            countryIsoCode: 'KE',
+            // Massive buffer for clock drift (1 hour back, 2 hours forward)
+            iat: Math.floor(Date.now() / 1000) - 3600, 
+            exp: Math.floor(Date.now() / 1000) + 7200, 
+            metadata: metadata 
         };
 
-        // Sign with explicitly defined algorithm
-        const token = jwt.sign(payload, FONBNK_SECRET, { algorithm: 'HS256' });
+        console.log("📝 SIGNING PAYLOAD:", JSON.stringify(payload, null, 2));
 
+        // 3. SIGN
+        const token = jwt.sign(payload, decodedSecret, { algorithm: 'HS256' });
 
-
-        return NextResponse.json({ token, uid });
+        return NextResponse.json({ signature: token });
 
     } catch (error) {
-        console.error("Fonbnk Token Generation Error:", error);
-        return NextResponse.json({ error: "Token Generation Failed" }, { status: 500 });
+        console.error("❌ SIGNING ERROR:", error);
+        return NextResponse.json({ error: "Failed to sign" }, { status: 500 });
     }
 }

@@ -16,6 +16,7 @@ export default function AdminPage() {
     const [question, setQuestion] = useState("");
     const [imageUrl, setImageUrl] = useState("");
     const [hours, setHours] = useState("24");
+    const [category, setCategory] = useState("");
 
     // 1. SECURITY: Basic email gate (Replace with your actual email)
     if (!user || user.email !== "keaganmuhia@gmail.com") {
@@ -37,6 +38,7 @@ export default function AdminPage() {
         const { error } = await supabase.from('markets').insert({
             question,
             image_url: imageUrl,
+            category,
             end_time: endTime.toISOString(),
             status: 'ACTIVE',
             pool_yes: 0,
@@ -94,6 +96,16 @@ export default function AdminPage() {
                             placeholder="Image URL (Unsplash)"
                             className="flex-1 bg-black/50 border border-white/20 p-4 rounded-xl text-white"
                         />
+                        <select 
+                            value={category}
+                            onChange={e => setCategory(e.target.value)}
+                            className="bg-black/50 border border-white/20 p-4 rounded-xl text-white"
+                        >
+                            <option value="Social">Social</option>
+                            <option value="Sports">Sports</option>
+                            <option value="Politics">Politics</option>
+                        </select>
+                        
                         <select 
                             value={hours}
                             onChange={e => setHours(e.target.value)}
